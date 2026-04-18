@@ -174,4 +174,23 @@ struct VoicePack {
 
 extension VoicePack {
     static func current(_ tone: VoiceTone) -> VoicePack { VoicePack(tone: tone) }
+
+    // Personal baseline copy
+    func belowBaseline(today: Int, baseline: Double) -> String {
+        let avg = String(format: "%.1f", baseline)
+        switch tone {
+        case .soft:     return "today's mood is below your average (\(avg)). nothing wrong with you. just a heavier day."
+        case .balanced: return "you logged \(today) today. your baseline is \(avg). this is a dip, not a trend."
+        case .savage:   return "you're a \(today) today. usually you're a \(avg). something's up — name it."
+        }
+    }
+
+    func adaptiveHeadline(_ effective: VoiceTone, original: VoiceTone) -> String? {
+        guard effective != original else { return nil }
+        switch tone {
+        case .soft:     return "luna is being extra gentle this week."
+        case .balanced: return "luna toned it down — you've had a hard stretch."
+        case .savage:   return "softening, even though i told you i wouldn't. tap to override."
+        }
+    }
 }

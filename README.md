@@ -10,12 +10,28 @@ It connects a woman's cycle, mood, energy, sleep, and relationships into one hon
 ## What this repo is
 
 A complete, high-fidelity SwiftUI prototype built for iOS 17+.
-Everything in the brief is implemented — animated avatars, onboarding with instant read, home forecast, check-in, cycle wheel, emotional forecast, pattern recognition, relationship lens, shareable outputs, paywall screens (stubbed), themes, privacy tools, and more.
+Everything in the brief is implemented, plus a second pass that addresses the major risks of the original design:
 
 - **No seed data.** The app starts empty; empty states are designed with personality.
 - **No third-party SDKs.** No analytics, no crash reporting.
 - **Local-first.** SwiftData stores everything on-device.
 - **HealthKit-ready.** A protocol seam exists at `Utilities/HealthKitProvider.swift` — the UI is wired through a `HealthProvider` you can implement later without touching views.
+
+## V2 improvements (the second pass)
+
+| Improvement | What it does | Where |
+|---|---|---|
+| **Passive data first** | Day 1 already shows a `PassiveSnapshot` (sleep, screen time, steps) so the user feels seen before logging | `Utilities/PassiveData.swift`, surfaced on Home + Brain detail |
+| **First insight by day 3** | `EarlyInsights` generates honest, low-confidence reads even with 0–3 check-ins | `Utilities/EarlyInsights.swift`, surfaced in Patterns |
+| **Heart reactivity** | Heart now plays kind-specific reactions: blush on lift, side-eye on drain | `Avatars/HeartAvatar.swift` (new `HeartReact` enum) |
+| **Voice safety rails** | Voice auto-softens when the user's recent moods are low; user can override per-session | `Utilities/AdaptiveVoice.swift` + Home banner + Voice settings |
+| **App Intents (Siri/Shortcuts)** | One-shot mood logging via "hey siri, log a 4 in luna" | `Intents/LunaIntents.swift` |
+| **Confidence intervals** | Period and ovulation predictions show honest windows, not single dates, with confidence labels | `Utilities/CycleEngine.swift` Prediction struct, surfaced in Cycle view |
+| **Personal baseline + ML seam** | `PersonalBaselineEngine` learns YOUR averages; flags when today is below your own baseline. `MLBaselineProvider` protocol is the swap-in point for CoreML | `Utilities/PersonalBaseline.swift` |
+| **Anonymous community signals** | "37 other women on day 23 felt similar today" — fully mocked, zero network, behind a `CommunitySignalProvider` protocol | `Utilities/CommunitySignals.swift`, surfaced on Home |
+| **Paywall reframed** | Leads with the relationship lens hero, not a feature list | `Views/Paywall/PaywallView.swift` |
+| **Voice intensity + Seasons** | Voice has a 5-level intensity dial. Avatars evolve through 5 cosmetic seasons unlocked by check-ins (never paywalled) | `Models/Season.swift`, `Views/Me/MeView.swift` SeasonsView |
+| **Lock-screen widget scaffold** | A WidgetKit one-tap mood widget, ready to activate by adding the extension target | `LunaWidget/` folder + README |
 
 ---
 
@@ -80,11 +96,19 @@ Luna/
 │
 ├── Utilities/
 │   ├── VoicePack.swift         # ALL user-facing copy routes through here
-│   ├── CycleEngine.swift       # pure phase math, testable
+│   ├── AdaptiveVoice.swift     # voice safety rails — softens on a hard week
+│   ├── CycleEngine.swift       # pure phase math + honest prediction windows
 │   ├── PatternEngine.swift     # insight generation over time
+│   ├── EarlyInsights.swift     # day-1 to day-3 low-confidence insights
+│   ├── PersonalBaseline.swift  # per-user baseline + ML protocol seam
+│   ├── PassiveData.swift       # passive signals (sleep/steps/screen) seam
+│   ├── CommunitySignals.swift  # anonymous aggregate provider
 │   ├── NotificationCenter.swift
-│   ├── HealthKitProvider.swift # protocol stub
+│   ├── HealthKitProvider.swift # protocol stub for HealthKit specifically
 │   └── DateExtensions.swift
+│
+├── Intents/
+│   └── LunaIntents.swift       # App Intents: LogMoodIntent + QuickInteractionIntent
 │
 └── Views/
     ├── Onboarding/OnboardingFlow.swift       # 7-step convo + instant read

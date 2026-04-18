@@ -11,9 +11,23 @@ struct HomeView: View {
     @State private var showCheckIn = false
     @State private var tappedAvatar: AvatarTap? = nil
     @State private var reactCount = 0
+    @State private var heartReactKind: HeartReact = .none
+    @State private var passive: PassiveSnapshot = .empty
+    @State private var community: CommunitySignal? = nil
+    @State private var showPaywall = false
+
+    private let passiveProvider: PassiveProvider = MockPassiveProvider()
+    private let communityProvider: CommunitySignalProvider = MockCommunitySignalProvider()
 
     private var profile: UserProfile? { profiles.first }
-    private var voice: VoicePack { VoicePack(tone: appState.voice) }
+    private var voice: VoicePack { VoicePack(tone: effectiveVoice) }
+
+    // Adaptive voice — softens automatically when recent moods are low.
+    private var effectiveVoice: VoiceTone {
+        AdaptiveVoice.resolved(userVoice: appState.voice,
+                               recentCheckIns: Array(checkIns),
+                               alwaysHonorUserVoice: appState.alwaysHonorVoice)
+    }
 
     private var currentDay: Int {
         CycleEngine.currentDay(lastPeriod: profile?.lastPeriodStart,
@@ -22,7 +36,9 @@ struct HomeView: View {
     private var phase: CyclePhase {
         CycleEngine.phase(forDay: currentDay, cycleLength: profile?.averageCycleLength ?? 28)
     }
-    private var brainState: BrainState { .okay } // HealthKit-gated hours → defaults to okay
+    private var brainState: BrainState {
+        BrainState.from(hours: passive.screenTimeHours ?? 4.0)
+    }
     private var heartState: HeartState {
         let recent = interactions.prefix(5).map(\.moodDelta)
         guard !recent.isEmpty else { return .neutral }
@@ -37,13 +53,22 @@ struct HomeView: View {
         ScrollView {
             VStack(spacing: 24) {
                 greeting
+                if let line = AdaptiveVoice.adaptedDisclosure(userVoice: appState.voice, effective: effectiveVoice) {
+                    voiceAdaptedNotice(line)
+                }
                 avatars
                 forecastCard
+                if let passiveLine = PassiveRead.headline(passive, voice: voice) {
+                    passiveCard(passiveLine)
+                }
                 quickTiles
+                if let community {
+                    communityCard(community)
+                }
                 if !checkIns.isEmpty {
                     recentStrip
                 }
-                Spacer(minLength: 120) // room for tab bar
+                Spacer(minLength: 120)
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
@@ -51,6 +76,9 @@ struct HomeView: View {
         .sheet(isPresented: $showCheckIn) {
             CheckInView()
                 .environmentObject(appState)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView().environmentObject(appState)
         }
         .sheet(item: $tappedAvatar) { tap in
             NavigationStack {
@@ -62,11 +90,22 @@ struct HomeView: View {
             }
             .environmentObject(appState)
         }
-        .onChange(of: interactions.count) { _, _ in
-            // Heart reacts briefly whenever a tracked person is logged.
+        .onChange(of: interactions.count) { old, new in
+            // Heart reacts based on the LAST interaction's delta.
+            guard new > old, let latest = interactions.first else { return }
+            heartReactKind = latest.moodDelta >= 1 ? .blush : (latest.moodDelta <= -1 ? .sideEye : .none)
             reactCount += 1
         }
+        .onChange(of: checkIns.count) { _, count in
+            appState.recomputeSeason(checkInCount: count)
+        }
+        .task { await refreshPassive() }
+        .task { community = await communityProvider.signal(forCycleDay: currentDay, phase: phase, mood: checkIns.first?.mood) }
         .navigationBarHidden(true)
+    }
+
+    private func refreshPassive() async {
+        passive = await passiveProvider.snapshot()
     }
 
     private var greeting: some View {
@@ -81,17 +120,47 @@ struct HomeView: View {
                     .foregroundStyle(appState.theme.textPrimary)
             }
             Spacer()
-            Text(Date.now.monthDay.lowercased())
-                .font(LunaType.metaM)
-                .foregroundStyle(appState.theme.textSecondary)
-                .padding(.top, 12)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(Date.now.monthDay.lowercased())
+                    .font(LunaType.metaM)
+                    .foregroundStyle(appState.theme.textSecondary)
+                if appState.season != .dawn {
+                    Text(appState.season.label.lowercased())
+                        .font(LunaType.metaS.weight(.semibold))
+                        .foregroundStyle(appState.theme.accent)
+                }
+            }
         }
+    }
+
+    private func voiceAdaptedNotice(_ line: String) -> some View {
+        Button {
+            Haptics.soft()
+            appState.alwaysHonorVoice = true
+        } label: {
+            HStack(spacing: 8) {
+                Circle().fill(LunaColors.accentWarm.opacity(0.5)).frame(width: 6, height: 6)
+                Text(line)
+                    .font(LunaType.metaM)
+                    .foregroundStyle(appState.theme.textSecondary)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 14).fill(appState.theme.bgSecondary))
+        }
+        .buttonStyle(.plain)
     }
 
     private var avatars: some View {
         HStack(alignment: .center, spacing: 12) {
             AvatarTile(title: "moon", sub: phase.label) {
-                MoonAvatar(phase: phase)
+                ZStack {
+                    if appState.season != .dawn {
+                        SoftGlow(color: appState.season.avatarTint)
+                    }
+                    MoonAvatar(phase: phase)
+                }
             } onTap: {
                 Haptics.tap()
                 tappedAvatar = AvatarTap(kind: .moon)
@@ -105,7 +174,7 @@ struct HomeView: View {
             }
 
             AvatarTile(title: "heart", sub: heartState.label) {
-                HeartAvatar(state: heartState, reactTrigger: reactCount)
+                HeartAvatar(state: heartState, reactTrigger: reactCount, reactKind: heartReactKind)
             } onTap: {
                 Haptics.tap()
                 tappedAvatar = AvatarTap(kind: .heart)
@@ -150,6 +219,44 @@ struct HomeView: View {
         case .follicular: return voice.follicularToday(day: currentDay)
         case .ovulation: return voice.ovulationToday(day: currentDay)
         case .luteal: return voice.lutealHeadsUp(day: currentDay)
+        }
+    }
+
+    private func passiveCard(_ line: String) -> some View {
+        SoftCard(tint: LunaColors.success.opacity(0.15)) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("what luna already knows")
+                    .font(LunaType.metaM.weight(.semibold))
+                    .foregroundStyle(appState.theme.textSecondary)
+                    .textCase(.uppercase)
+                Text(line)
+                    .font(LunaType.bodyL)
+                    .foregroundStyle(appState.theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func communityCard(_ signal: CommunitySignal) -> some View {
+        let line = CommunityCopy.line(signal: signal, day: currentDay, mood: checkIns.first?.mood, voice: voice)
+        return Group {
+            if !line.isEmpty {
+                SoftCard(tint: LunaColors.accentSoft.opacity(0.2)) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("the quiet community")
+                            .font(LunaType.metaM.weight(.semibold))
+                            .foregroundStyle(appState.theme.textSecondary)
+                            .textCase(.uppercase)
+                        Text(line)
+                            .font(LunaType.bodyL)
+                            .foregroundStyle(appState.theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("anonymous, aggregate. never your data, never theirs.")
+                            .font(LunaType.metaS)
+                            .foregroundStyle(appState.theme.textSecondary)
+                    }
+                }
+            }
         }
     }
 

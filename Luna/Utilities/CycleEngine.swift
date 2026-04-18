@@ -22,17 +22,47 @@ enum CycleEngine {
         return mod + 1
     }
 
-    // Ovulation date prediction for the current or next cycle.
-    static func predictOvulation(lastPeriod: Date?, cycleLength: Int) -> Date? {
+    // Honest prediction range. Never claim a single date — give a window
+    // and a confidence score so the user trusts what we say.
+    struct Prediction {
+        var early: Date
+        var likely: Date
+        var late: Date
+        var confidence: Double // 0...1, scales with cycle history
+    }
+
+    static func nextPeriodPrediction(lastPeriod: Date?, cycleLength: Int, recentLengths: [Int] = []) -> Prediction? {
+        guard let lp = lastPeriod else { return nil }
+        let len = max(cycleLength, 21)
+        let cal = Calendar.current
+        // Spread = standard deviation of the last few cycles, defaulting to ±2 days.
+        let spread: Int
+        if recentLengths.count >= 3 {
+            let avg = Double(recentLengths.reduce(0, +)) / Double(recentLengths.count)
+            let variance = recentLengths.map { pow(Double($0) - avg, 2) }.reduce(0, +) / Double(recentLengths.count)
+            spread = max(2, min(7, Int(sqrt(variance).rounded())))
+        } else {
+            spread = 2
+        }
+        let likely = cal.date(byAdding: .day, value: len, to: lp) ?? lp
+        let early = cal.date(byAdding: .day, value: -spread, to: likely) ?? likely
+        let late = cal.date(byAdding: .day, value: spread, to: likely) ?? likely
+        let confidence = min(1.0, Double(recentLengths.count) / 6.0)
+        return Prediction(early: early, likely: likely, late: late, confidence: confidence)
+    }
+
+    static func ovulationPrediction(lastPeriod: Date?, cycleLength: Int, recentLengths: [Int] = []) -> Prediction? {
         guard let lp = lastPeriod else { return nil }
         let len = max(cycleLength, 21)
         let offset = max(len - 14, 12)
-        return Calendar.current.date(byAdding: .day, value: offset - 1, to: lp)
-    }
-
-    static func nextPeriod(lastPeriod: Date?, cycleLength: Int) -> Date? {
-        guard let lp = lastPeriod else { return nil }
-        return Calendar.current.date(byAdding: .day, value: max(cycleLength, 21), to: lp)
+        let cal = Calendar.current
+        let likely = cal.date(byAdding: .day, value: offset - 1, to: lp) ?? lp
+        // Ovulation has a natural 24-48h window even for regular cycles.
+        let spread = recentLengths.count >= 3 ? 3 : 2
+        let early = cal.date(byAdding: .day, value: -spread, to: likely) ?? likely
+        let late = cal.date(byAdding: .day, value: spread, to: likely) ?? likely
+        let confidence = min(1.0, Double(recentLengths.count) / 6.0)
+        return Prediction(early: early, likely: likely, late: late, confidence: confidence)
     }
 
     static func isIrregular(recentLengths: [Int]) -> Bool {

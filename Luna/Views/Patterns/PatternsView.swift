@@ -7,16 +7,45 @@ struct PatternsView: View {
     @Query(sort: \CycleEvent.date) private var events: [CycleEvent]
     @Query(sort: \Interaction.date) private var interactions: [Interaction]
     @Query private var profiles: [UserProfile]
+    @State private var passive: PassiveSnapshot = .empty
 
-    private var voice: VoicePack { VoicePack(tone: appState.voice) }
+    private let passiveProvider: PassiveProvider = MockPassiveProvider()
 
+    private var voice: VoicePack {
+        VoicePack(tone: AdaptiveVoice.resolved(userVoice: appState.voice,
+                                               recentCheckIns: checkIns.reversed(),
+                                               alwaysHonorUserVoice: appState.alwaysHonorVoice))
+    }
+
+    // Combine deterministic + early + personal-baseline insights into one list.
     private var insights: [PatternInsight] {
-        PatternEngine.insights(
+        var all = PatternEngine.insights(
             checkIns: checkIns,
             events: events,
             interactions: interactions,
             profile: profiles.first,
             voice: voice)
+        all.append(contentsOf: EarlyInsights.generate(
+            checkIns: checkIns,
+            passive: passive,
+            profile: profiles.first,
+            voice: voice))
+        if let baselineInsight = baselineInsight() { all.append(baselineInsight) }
+        return all
+    }
+
+    private func baselineInsight() -> PatternInsight? {
+        guard let profile = profiles.first, let latest = checkIns.last else { return nil }
+        let baseline = PersonalBaselineEngine.compute(
+            checkIns: checkIns,
+            cycleLength: profile.averageCycleLength,
+            lastPeriod: profile.lastPeriodStart)
+        guard baseline.isBelowBaseline(mood: latest.mood) else { return nil }
+        return PatternInsight(
+            title: "below your own baseline",
+            body: voice.belowBaseline(today: latest.mood, baseline: baseline.avgMood),
+            kindRaw: "personal_baseline",
+            severity: .heads_up)
     }
 
     var body: some View {
@@ -63,6 +92,7 @@ struct PatternsView: View {
         }
         .navigationTitle("patterns")
         .navigationBarTitleDisplayMode(.inline)
+        .task { passive = await passiveProvider.snapshot() }
     }
 
     private var header: some View {

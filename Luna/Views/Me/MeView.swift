@@ -43,12 +43,16 @@ struct MeView: View {
                     .buttonStyle(.plain)
                 }
 
-                header("voice")
+                header("voice & look")
                 NavigationLink("voice preference") { VoiceSettingsView() }
                     .foregroundStyle(appState.theme.textPrimary)
                     .font(LunaType.bodyL)
                     .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(sectionBG)
                 NavigationLink("theme") { ThemeSettingsView() }
+                    .foregroundStyle(appState.theme.textPrimary)
+                    .font(LunaType.bodyL)
+                    .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(sectionBG)
+                NavigationLink("seasons") { SeasonsView() }
                     .foregroundStyle(appState.theme.textPrimary)
                     .font(LunaType.bodyL)
                     .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(sectionBG)
@@ -164,9 +168,14 @@ struct ProfileSettingsView: View {
 
 struct VoiceSettingsView: View {
     @EnvironmentObject var appState: AppState
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("base voice")
+                    .font(LunaType.metaM.weight(.semibold))
+                    .foregroundStyle(appState.theme.textSecondary)
+                    .textCase(.uppercase)
                 ForEach(VoiceTone.allCases) { v in
                     Button {
                         Haptics.selection()
@@ -181,10 +190,121 @@ struct VoiceSettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                Text("intensity")
+                    .font(LunaType.metaM.weight(.semibold))
+                    .foregroundStyle(appState.theme.textSecondary)
+                    .textCase(.uppercase)
+                    .padding(.top, 12)
+
+                SoftCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("how loud is the voice")
+                            .font(LunaType.bodyL.weight(.semibold))
+                            .foregroundStyle(appState.theme.textPrimary)
+                        // 5-level intensity dial. Doesn't change which voice — only how loud.
+                        HStack(spacing: 8) {
+                            ForEach(VoiceIntensity.allCases) { vi in
+                                ChipButton(title: vi.label,
+                                           isSelected: appState.voiceIntensity == vi) {
+                                    appState.voiceIntensity = vi
+                                }
+                            }
+                        }
+                        Text("intensity changes how punchy each line lands. doesn't change which voice you picked.")
+                            .font(LunaType.bodyS)
+                            .foregroundStyle(appState.theme.textSecondary)
+                    }
+                }
+
+                Text("safety rails")
+                    .font(LunaType.metaM.weight(.semibold))
+                    .foregroundStyle(appState.theme.textSecondary)
+                    .textCase(.uppercase)
+                    .padding(.top, 12)
+
+                SoftCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle(isOn: Binding(get: { !appState.alwaysHonorVoice },
+                                             set: { appState.alwaysHonorVoice = !$0 })) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("let luna read the room")
+                                    .font(LunaType.bodyL.weight(.semibold))
+                                    .foregroundStyle(appState.theme.textPrimary)
+                                Text("when your recent moods are low, luna softens her tone automatically. you can override on the home screen.")
+                                    .font(LunaType.bodyS)
+                                    .foregroundStyle(appState.theme.textSecondary)
+                            }
+                        }
+                    }
+                }
             }
             .padding(20)
         }
         .navigationTitle("voice")
+    }
+}
+
+// New: the seasons (avatar evolution) view.
+struct SeasonsView: View {
+    @EnvironmentObject var appState: AppState
+    @Query private var checkIns: [CheckIn]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("seasons")
+                    .font(LunaType.displayL)
+                    .foregroundStyle(appState.theme.textPrimary)
+                Text("luna evolves with you. seasons unlock by showing up — never by paying.")
+                    .font(LunaType.bodyM)
+                    .foregroundStyle(appState.theme.textSecondary)
+
+                ForEach(Season.allCases) { season in
+                    let unlocked = checkIns.count >= season.unlocksAtCheckIns
+                    SoftCard(tint: appState.season == season ? LunaColors.accentSoft.opacity(0.3) : nil) {
+                        HStack(spacing: 14) {
+                            Circle().fill(season.avatarTint == .clear ? LunaColors.bgSecondary : season.avatarTint)
+                                .frame(width: 36, height: 36)
+                                .overlay(Circle().stroke(LunaColors.textPrimary.opacity(0.08), lineWidth: 1))
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(season.label).font(LunaType.displayS).foregroundStyle(appState.theme.textPrimary)
+                                    if !unlocked {
+                                        Text("locked")
+                                            .font(LunaType.metaS.weight(.semibold))
+                                            .padding(.horizontal, 7).padding(.vertical, 2)
+                                            .background(Capsule().fill(LunaColors.bgSecondary))
+                                            .foregroundStyle(LunaColors.textSecondary)
+                                    }
+                                }
+                                Text(season.sub).font(LunaType.bodyS).foregroundStyle(appState.theme.textSecondary)
+                                Text(progressText(for: season))
+                                    .font(LunaType.metaS)
+                                    .foregroundStyle(appState.theme.textSecondary)
+                            }
+                            Spacer()
+                            if unlocked {
+                                Button(appState.season == season ? "active" : "use") {
+                                    appState.season = season
+                                    Haptics.selection()
+                                }
+                                .font(LunaType.bodyS.weight(.semibold))
+                                .foregroundStyle(appState.theme.accent)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle("seasons")
+    }
+
+    private func progressText(for season: Season) -> String {
+        if checkIns.count >= season.unlocksAtCheckIns { return "unlocked" }
+        let need = season.unlocksAtCheckIns - checkIns.count
+        return "\(need) more check-ins to unlock"
     }
 }
 

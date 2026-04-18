@@ -173,15 +173,19 @@ struct CycleView: View {
 
     private var statsCard: some View {
         SoftCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("cycle stats")
                     .font(LunaType.metaM.weight(.semibold))
                     .foregroundStyle(appState.theme.textSecondary)
                     .textCase(.uppercase)
                 HStack(spacing: 16) {
                     StatTile(label: "avg", value: "\(cycleLength)d")
-                    StatTile(label: "next period", value: nextPeriodString)
-                    StatTile(label: "ovulation", value: ovulationString)
+                }
+                if let p = nextPredict {
+                    PredictionRow(title: "next period", prediction: p)
+                }
+                if let o = ovPredict {
+                    PredictionRow(title: "ovulation window", prediction: o)
                 }
                 if events.isEmpty {
                     Text(voice.emptyCheckIns)
@@ -192,13 +196,67 @@ struct CycleView: View {
         }
     }
 
-    private var nextPeriodString: String {
-        guard let d = CycleEngine.nextPeriod(lastPeriod: profile?.lastPeriodStart, cycleLength: cycleLength) else { return "—" }
-        return d.monthDay.lowercased()
+    // We send the engine the lengths between consecutive period-start events
+    // so the spread reflects this user's actual variability.
+    private var recentLengths: [Int] {
+        let starts = events.filter { $0.kind == .period && $0.flow != .none }
+            .sorted(by: { $0.date < $1.date })
+            .map(\.date)
+        guard starts.count >= 2 else { return [] }
+        var out: [Int] = []
+        for i in 1..<starts.count {
+            let d = Calendar.current.dateComponents([.day], from: starts[i-1], to: starts[i]).day ?? 0
+            if d > 14 && d < 60 { out.append(d) }
+        }
+        return out
     }
-    private var ovulationString: String {
-        guard let d = CycleEngine.predictOvulation(lastPeriod: profile?.lastPeriodStart, cycleLength: cycleLength) else { return "—" }
-        return d.monthDay.lowercased()
+
+    private var nextPredict: CycleEngine.Prediction? {
+        CycleEngine.nextPeriodPrediction(lastPeriod: profile?.lastPeriodStart, cycleLength: cycleLength, recentLengths: recentLengths)
+    }
+    private var ovPredict: CycleEngine.Prediction? {
+        CycleEngine.ovulationPrediction(lastPeriod: profile?.lastPeriodStart, cycleLength: cycleLength, recentLengths: recentLengths)
+    }
+}
+
+// Honest prediction row: shows the window + the confidence behind it.
+struct PredictionRow: View {
+    var title: String
+    var prediction: CycleEngine.Prediction
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(LunaType.bodyS.weight(.semibold))
+                    .foregroundStyle(appState.theme.textSecondary)
+                Spacer()
+                Text(confidenceLabel)
+                    .font(LunaType.metaS.weight(.semibold))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .foregroundStyle(LunaColors.textSecondary)
+                    .background(Capsule().fill(LunaColors.bgSecondary))
+            }
+            Text(rangeText)
+                .font(LunaType.displayS)
+                .foregroundStyle(appState.theme.textPrimary)
+            // Honesty note — we never show a single date.
+            Text("most likely \(prediction.likely.monthDay.lowercased())")
+                .font(LunaType.metaS)
+                .foregroundStyle(appState.theme.textSecondary)
+        }
+    }
+
+    private var rangeText: String {
+        "\(prediction.early.monthDay.lowercased()) – \(prediction.late.monthDay.lowercased())"
+    }
+    private var confidenceLabel: String {
+        switch prediction.confidence {
+        case ..<0.34: return "low confidence"
+        case 0.34..<0.67: return "fair"
+        default: return "high confidence"
+        }
     }
 }
 

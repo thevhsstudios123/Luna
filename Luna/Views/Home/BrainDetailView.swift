@@ -1,9 +1,16 @@
 import SwiftUI
 
-// Screen time / clarity detail — hooks to HealthKit later via HealthProvider.
+// Screen time / clarity detail. Reads from PassiveProvider so it's not faked
+// when the user lands here — once HealthProvider is wired, the same UI works.
 struct BrainDetailView: View {
     @EnvironmentObject var appState: AppState
-    @State private var hours: Double = 4.2
+    @State private var snapshot: PassiveSnapshot = .empty
+    private let passive: PassiveProvider = MockPassiveProvider()
+
+    private var hours: Double { snapshot.screenTimeHours ?? 0 }
+    private var sleep: Double? { snapshot.sleepHoursLastNight }
+    private var steps: Int? { snapshot.stepsToday }
+    private var voice: VoicePack { VoicePack(tone: appState.voice) }
 
     var body: some View {
         ScrollView {
@@ -34,13 +41,32 @@ struct BrainDetailView: View {
                     }
                 }
 
+                if sleep != nil || steps != nil {
+                    SoftCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("the rest of you")
+                                .font(LunaType.metaM.weight(.semibold))
+                                .foregroundStyle(appState.theme.textSecondary)
+                                .textCase(.uppercase)
+                            HStack(spacing: 16) {
+                                if let s = sleep {
+                                    StatTile(label: "sleep", value: "\(String(format: "%.1f", s))h")
+                                }
+                                if let st = steps {
+                                    StatTile(label: "steps", value: "\(st)")
+                                }
+                            }
+                        }
+                    }
+                }
+
                 SoftCard(tint: LunaColors.accentSoft.opacity(0.25)) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("coming soon")
+                        Text("the seam")
                             .font(LunaType.metaM.weight(.semibold))
                             .foregroundStyle(appState.theme.textSecondary)
                             .textCase(.uppercase)
-                        Text("plug in screen time for real numbers. until then, this is a hand-wave.")
+                        Text("these numbers come from luna's mock provider for now. plug HealthProvider in and the same view shows your real data.")
                             .font(LunaType.bodyM)
                             .foregroundStyle(appState.theme.textPrimary)
                     }
@@ -50,6 +76,7 @@ struct BrainDetailView: View {
         }
         .navigationTitle("clarity")
         .navigationBarTitleDisplayMode(.inline)
+        .task { snapshot = await passive.snapshot() }
     }
 
     private func copyFor(hours: Double) -> String {

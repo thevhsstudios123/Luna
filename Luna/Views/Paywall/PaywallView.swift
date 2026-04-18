@@ -1,9 +1,12 @@
 import SwiftUI
 
+// Paywall reframed: leads with the unique value (relationship lens) and an emotional
+// scene, not a feature checklist. Features are shown second, as proof, not pitch.
 struct PaywallView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var plan: Plan = .yearly
+    @State private var heartReact = 0
 
     enum Plan { case monthly, yearly }
 
@@ -11,28 +14,34 @@ struct PaywallView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Spacer()
-                    Button("close") { dismiss() }
-                        .font(LunaType.bodyS)
-                        .foregroundStyle(appState.theme.textSecondary)
-                }
+            VStack(alignment: .leading, spacing: 28) {
+                topBar
 
-                HStack(spacing: -8) {
-                    MoonAvatar(phase: .follicular).frame(width: 80, height: 80)
-                    BrainAvatar(state: .sharp).frame(width: 80, height: 80)
-                    HeartAvatar(state: .full).frame(width: 80, height: 80)
-                }
-                .frame(maxWidth: .infinity)
+                // The hero — the relationship lens dramatized in one card.
+                heroScene
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(voice.paywallHeadline)
+                // Editorial pitch (relationship lens first, by design).
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(headlineCopy)
                         .font(LunaType.displayXL)
                         .foregroundStyle(appState.theme.textPrimary)
-                    Text(voice.paywallSub)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(subCopy)
                         .font(LunaType.bodyL)
                         .foregroundStyle(appState.theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // What you also get — quiet supporting list, not the main attraction.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("you'll also get")
+                        .font(LunaType.metaM.weight(.semibold))
+                        .foregroundStyle(appState.theme.textSecondary)
+                        .textCase(.uppercase)
+                    bullet("the full emotional forecast — daily, weekly, monthly")
+                    bullet("pattern recognition that compounds over time")
+                    bullet("shareable cards and your year in review")
+                    bullet("all three aesthetic themes")
                 }
 
                 VStack(spacing: 12) {
@@ -40,13 +49,14 @@ struct PaywallView: View {
                     PlanRow(title: "monthly", sub: "$9.99 / month", flag: nil, isSelected: plan == .monthly) { plan = .monthly }
                 }
 
-                SoftButton(title: "start with luna") { unlock() }
+                SoftButton(title: ctaCopy) { unlock() }
+
                 Button("not right now") { dismiss() }
                     .font(LunaType.bodyS)
                     .foregroundStyle(appState.theme.textSecondary)
                     .frame(maxWidth: .infinity)
 
-                Text("cancel anytime. your data stays yours.")
+                Text("cancel anytime. your data stays yours, on your device.")
                     .font(LunaType.metaM)
                     .foregroundStyle(appState.theme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -56,6 +66,87 @@ struct PaywallView: View {
             .padding(20)
         }
         .themedBackground()
+        .onAppear {
+            // Stage the heart's react so the hero feels alive.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { heartReact += 1 }
+        }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Spacer()
+            Button("close") { dismiss() }
+                .font(LunaType.bodyS)
+                .foregroundStyle(appState.theme.textSecondary)
+        }
+    }
+
+    // The hero scene: a Heart avatar with a "drained" state and a faint name
+    // beside it — telling the story of a relationship costing the user. Premium
+    // is what shows her this pattern instead of letting it stay invisible.
+    private var heroScene: some View {
+        SoftCard(tint: LunaColors.accentBold.opacity(0.12)) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .center, spacing: 14) {
+                    HeartAvatar(state: .armored, reactTrigger: heartReact, reactKind: .sideEye)
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("someone in your life")
+                            .font(LunaType.bodyS.weight(.semibold))
+                            .foregroundStyle(appState.theme.textSecondary)
+                        Text("costs you, every time")
+                            .font(LunaType.displayS)
+                            .foregroundStyle(appState.theme.textPrimary)
+                    }
+                }
+                Text(heroLine)
+                    .font(LunaType.bodyL)
+                    .foregroundStyle(appState.theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var heroLine: String {
+        switch appState.voice {
+        case .soft:     return "luna can show you which relationships drain you and which lift you. gentle data. quietly life-changing."
+        case .balanced: return "the relationship lens shows mood deltas per person across cycles. it surfaces the people who consistently lower you — and the ones who lift you. that's the whole point."
+        case .savage:   return "the lens is the part that says, with receipts: \"every time you see him, your mood drops for two days.\" you knew. now you know."
+        }
+    }
+
+    private var headlineCopy: String {
+        switch appState.voice {
+        case .soft:     return "see who you become around the people in your life."
+        case .balanced: return "the relationship lens, fully open."
+        case .savage:   return "stop guessing. the lens is the truth."
+        }
+    }
+
+    private var subCopy: String {
+        switch appState.voice {
+        case .soft:     return "your cycle, your mood, and the people you love — connected, gently, in one honest picture."
+        case .balanced: return "premium unlocks the relationship lens, full forecasts, and pattern recognition that compounds with every check-in."
+        case .savage:   return "the data you've already given luna becomes useful when she's allowed to look at all of it. that's premium."
+        }
+    }
+
+    private var ctaCopy: String {
+        switch appState.voice {
+        case .soft:     return "begin"
+        case .balanced: return "open the lens"
+        case .savage:   return "let me see"
+        }
+    }
+
+    private func bullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(appState.theme.accent).frame(width: 6, height: 6).padding(.top, 8)
+            Text(text)
+                .font(LunaType.bodyM)
+                .foregroundStyle(appState.theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func unlock() {

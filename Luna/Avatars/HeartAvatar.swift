@@ -22,25 +22,43 @@ enum HeartState {
     }
 }
 
+enum HeartReact { case none, blush, sideEye, crackOpen }
+
 struct HeartAvatar: View {
     var state: HeartState
     var reactTrigger: Int = 0   // increment to trigger a brief react animation
+    var reactKind: HeartReact = .none
     @State private var beat: CGFloat = 1.0
     @State private var sparkle: CGFloat = 0.0
     @State private var reacting: Bool = false
+    @State private var blushAmount: CGFloat = 0.0
+    @State private var sideEyeOffset: CGFloat = 0.0
+    @State private var crackProgress: CGFloat = 0.0
 
     var body: some View {
         GeometryReader { geo in
             let d = min(geo.size.width, geo.size.height)
             ZStack {
                 Circle()
-                    .fill(state.color.opacity(0.2))
+                    .fill(state.color.opacity(0.2 + 0.15 * blushAmount))
                     .frame(width: d * 1.2, height: d * 1.2)
                     .blur(radius: 16)
 
                 HeartShape()
                     .fill(state.color)
                     .frame(width: d * 0.82, height: d * 0.76)
+                    .overlay(
+                        // Blush dots when reactKind == .blush
+                        HStack(spacing: d * 0.32) {
+                            Circle().fill(LunaColors.accentWarm.opacity(0.6 * blushAmount))
+                                .frame(width: d * 0.13, height: d * 0.08)
+                                .blur(radius: 3)
+                            Circle().fill(LunaColors.accentWarm.opacity(0.6 * blushAmount))
+                                .frame(width: d * 0.13, height: d * 0.08)
+                                .blur(radius: 3)
+                        }
+                        .offset(y: d * 0.04)
+                    )
                     .overlay(
                         Group {
                             if state == .drained {
@@ -80,20 +98,42 @@ struct HeartAvatar: View {
             }
             .scaleEffect(beat)
             .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: beat)
-            .scaleEffect(reacting ? 1.15 : 1.0)
-            .animation(.spring(response: 0.4, dampingFraction: 0.5), value: reacting)
+            .scaleEffect(reacting ? 1.18 : 1.0)
+            .rotationEffect(.degrees(Double(sideEyeOffset) * 4))
+            .animation(.spring(response: 0.45, dampingFraction: 0.55), value: reacting)
             .onAppear {
                 beat = 1.04
                 withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
                     sparkle = 1.0
                 }
             }
-            .onChange(of: reactTrigger) { _, _ in
-                reacting = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { reacting = false }
-            }
+            .onChange(of: reactTrigger) { _, _ in playReact() }
         }
         .accessibilityLabel("heart avatar, \(state.label)")
+    }
+
+    // Plays a short, character-driven reaction. The kind matters: a blush after
+    // a "lift" interaction, a side-eye after a "drain" one, a crack widening when
+    // someone has a pattern of hurting her.
+    private func playReact() {
+        reacting = true
+        switch reactKind {
+        case .blush:
+            withAnimation(.easeOut(duration: 0.35)) { blushAmount = 1.0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                withAnimation(.easeIn(duration: 0.6)) { blushAmount = 0.0 }
+            }
+        case .sideEye:
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) { sideEyeOffset = 1.0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                withAnimation(.easeOut(duration: 0.4)) { sideEyeOffset = 0.0 }
+            }
+        case .crackOpen:
+            withAnimation(.easeInOut(duration: 0.6)) { crackProgress = 1.0 }
+        case .none:
+            break
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { reacting = false }
     }
 
     @ViewBuilder
